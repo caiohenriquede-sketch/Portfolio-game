@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="pt-BR" style="background:#000">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<meta name="color-scheme" content="dark">
+<title>run</title>
+<style>
+  :root {
+    box-sizing: border-box;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    background: #000;
+  }
+  html, body {
+    margin: 0; height: 100%; background: #000; color: #777; overflow: hidden;
+    touch-action: manipulation; -webkit-user-select: none; user-select: none;
+  }
+  body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+  canvas { display: block; width: 100%; height: 100%; background: #000; }
+</style>
+</head>
+<body style="background:#000">
+<canvas id="c"></canvas>
+<noscript style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center">building portfolio...</noscript>
+<script>
+(() => {
+  const cv = document.getElementById("c");
+  const ctx = cv.getContext("2d");
+
+  // Virtual units: everything is simulated at a fixed scale and drawn scaled to the screen.
+  let W, H, S, Wv, Hv, groundY;
+  function resize() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    W = cv.clientWidth || innerWidth; H = cv.clientHeight || innerHeight;
+    cv.width = W * dpr; cv.height = H * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    S = Math.max(0.7, Math.min(1.4, H / 600));
+    Wv = W / S; Hv = H / S;
+    groundY = Math.round(Hv * 0.68);
+  }
+  addEventListener("resize", resize);
+  resize();
+
+  const GRAVITY = 2200, JUMP_V = 820, PX = 70, PW = 44, PH = 32;
+  const COL = { player: "#f3f3f3", a: "#6b6b6b", b: "#b5b5b5", line: "#2a2a2a", dim: "#777", faint: "#444" };
+
+  let state = "ready";          // ready | running | over
+  let speed, dist, score, lift, vy, obstacles, sinceSpawn, gap, overAt = 0, specks = [];
+  let q = 0, qv = 0, buffer = 0;   // squash/stretch spring + jump buffer
+  let hi = 0;
+  try { hi = +localStorage.getItem("hi") || 0; } catch (e) {}
+
+  function reset() {
+    speed = 380; dist = 0; score = 0; lift = 0; vy = 0; q = 0; qv = 0; buffer = 0;
+    obstacles = []; sinceSpawn = 0; gap = 520;
+    specks = Array.from({ length: 22 }, () => ({
+      x: Math.random() * Wv, y: 8 + Math.random() * 40, w: 2 + Math.random() * 6
+    }));
+  }
+  reset();
+
+  function takeoff() { vy = JUMP_V; q = 0.16; qv = 0; }   // small squat, then the spring stretches
+  function jump() {
+    const now = performance.now();
+    if (state === "ready") { reset(); state = "running"; takeoff(); return; }
+    if (state === "running") { if (lift === 0) takeoff(); else buffer = 0.12; return; }   // buffered jump
+    if (state === "over" && now - overAt > 350) { reset(); state = "running"; takeoff(); }
+  }
+  addEventListener("keydown", e => {
+    if (e.code === "Space" || e.code === "ArrowUp" || e.code === "KeyW") { e.preventDefault(); if (!e.repeat) jump(); }
+  });
+  addEventListener("pointerdown", e => { e.preventDefault(); jump(); });
+
+  function spawn() {
+    const count = Math.random() < 0.3 ? 2 : 1;
+    const h = [30, 44, 58][Math.floor(Math.random() * 3)];
+    const w = 28;
+    obstacles.push({ x: Wv + 20, w: w * count + (count - 1) * 4, h, count, w1: w, color: h > 40 ? COL.b : COL.a });
+  }
+
+  function update(dt) {
+    if (state !== "running") return;
+    speed = Math.min(900, speed + 14 * dt);
+    dist += speed * dt;
+    score = Math.floor(dist * 0.025);
+
+    // smoother arc: floaty near the apex, a little heavier on the way down
+    const wasAir = lift > 0;
+    const g = vy < 0 ? GRAVITY * 1.2 : (vy < 220 ? GRAVITY * 0.7 : GRAVITY);
+    vy -= g * dt;
+    lift += vy * dt;
+    if (lift <= 0) {
+      if (wasAir && vy < -50) { q = 0.3 * Math.min(1, -vy / JUMP_V); qv = 0; }   // landing squash
+      lift = 0; vy = 0;
+      if (buffer > 0) takeoff();
+    }
+    buffer = Math.max(0, buffer - dt);
+    // elastic body: damped spring toward neutral (or a stretch while airborne)
+    const target = lift > 0 ? -Math.min(0.16, Math.abs(vy) / JUMP_V * 0.16) : 0;
+    qv += (-260 * (q - target) - 16 * qv) * dt;
+    q += qv * dt;
+
+    sinceSpawn += speed * dt;
+    if (sinceSpawn >= gap) {
+      spawn();
+      sinceSpawn = 0;
+      gap = speed * 0.75 + 200 + Math.random() * 350;
+    }
+    obstacles.forEach(o => { o.x -= speed * dt; });
+    obstacles = obstacles.filter(o => o.x + o.w > -20);
+    specks.forEach(s => { s.x -= speed * dt * 0.6; if (s.x + s.w < 0) { s.x = Wv + Math.random() * 60; s.y = 8 + Math.random() * 40; } });
+
+    const px = PX + 4, py = groundY - lift - PH + 4, pw = PW - 8, ph = PH - 8;
+    for (const o of obstacles) {
+      const ox = o.x + 6, oy = groundY - o.h + 8, ow = o.w - 12, oh = o.h - 8;
+      if (px < ox + ow && px + pw > ox && py < oy + oh && py + ph > oy) {
+        state = "over"; overAt = performance.now();
+        if (score > hi) { hi = score; try { localStorage.setItem("hi", String(hi)); } catch (e) {} }
+        break;
+      }
+    }
+  }
+
+  function rr(x, y, w, h, r) {
+    r = Math.min(r, w / 2, h / 2);
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+  function pine(cx, w, h) {
+    const trunk = 6, fh = h - trunk, tiers = h > 40 ? 3 : 2, th = fh * 0.5;
+    const step = (fh - th) / (tiers - 1);
+    ctx.fillRect(cx - 2, groundY - trunk, 4, trunk);                       // trunk
+    for (let k = 0; k < tiers; k++) {                                       // stacked tiers
+      const base = groundY - trunk - k * step, tw = w * (1 - k * 0.22);
+      ctx.beginPath();
+      ctx.moveTo(cx - tw / 2, base); ctx.lineTo(cx, base - th); ctx.lineTo(cx + tw / 2, base);
+      ctx.closePath(); ctx.fill(); ctx.stroke();
+    }
+  }
+  const pad = n => String(n).padStart(5, "0");
+
+  function draw(now) {
+    ctx.setTransform(Math.min(window.devicePixelRatio || 1, 2), 0, 0, Math.min(window.devicePixelRatio || 1, 2), 0, 0);
+    ctx.fillStyle = "#000"; ctx.fillRect(0, 0, W, H);
+    ctx.save(); ctx.scale(S, S);
+
+    // ground
+    ctx.fillStyle = COL.line; ctx.fillRect(0, groundY, Wv, 1.5);
+    ctx.fillStyle = "#1c1c1c";
+    specks.forEach(s => ctx.fillRect(s.x, groundY + s.y, s.w, 1.5));
+
+    // obstacles
+    obstacles.forEach(o => {
+      ctx.fillStyle = o.color; ctx.strokeStyle = o.color;
+      ctx.lineJoin = "round"; ctx.lineWidth = 3;
+      for (let i = 0; i < o.count; i++) pine(o.x + i * (o.w1 + 4) + o.w1 / 2, o.w1, o.h);
+    });
+
+    // player (the mascot)
+    const runQ = (state === "running" && lift === 0) ? Math.sin(dist * 0.045) * 0.045 : 0;
+    const qq = q + runQ;
+    ctx.save();
+    ctx.translate(PX + PW / 2, groundY - lift);          // origin at the feet
+    ctx.scale(1 + qq * 0.75, 1 - qq);                    // squash & stretch
+    const top = -PH;
+    ctx.fillStyle = COL.player; rr(-PW / 2, top, PW, PH, 9); ctx.fill();
+
+    ctx.fillStyle = "#000"; ctx.strokeStyle = "#000"; ctx.lineWidth = 1.6; ctx.lineCap = "round";
+    const ey = top + 11, lx = -PW / 2 + 17, rx = PW / 2 - 17;
+    if (state === "over") {
+      [lx, rx].forEach(x => {
+        ctx.beginPath(); ctx.moveTo(x - 3, ey - 3); ctx.lineTo(x + 3, ey + 3);
+        ctx.moveTo(x + 3, ey - 3); ctx.lineTo(x - 3, ey + 3); ctx.stroke();
+      });
+    } else {
+      const blink = (now % 3600) > 3450 ? 0.15 : 1;
+      const dx = 3, dy = lift > 0 ? -1.5 : 0;
+      [lx, rx].forEach(x => {
+        ctx.save(); ctx.translate(x + dx, ey + dy); ctx.scale(1, blink);
+        ctx.beginPath(); ctx.arc(0, 0, 2.6, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+      });
+    }
+
+    ctx.restore();
+
+    // HUD
+    ctx.textBaseline = "alphabetic";
+    ctx.font = "300 18px system-ui, -apple-system, 'Segoe UI', sans-serif";
+    ctx.textAlign = "right";
+    ctx.fillStyle = COL.dim; ctx.fillText(pad(score), Wv - 24, 40);
+    if (hi > 0) { ctx.fillStyle = COL.faint; ctx.fillText("HI " + pad(hi), Wv - 24 - 76, 40); }
+
+    ctx.textAlign = "center";
+    ctx.fillStyle = COL.dim; ctx.fillText("building portfolio...", Wv / 2, Hv - 36);
+    if (state === "ready") {
+      ctx.fillStyle = COL.dim; ctx.font = "300 14px system-ui, sans-serif";
+      ctx.fillText("press space or tap to start", Wv / 2, groundY - 130);
+    } else if (state === "over") {
+      ctx.fillStyle = COL.player; ctx.font = "300 28px system-ui, sans-serif";
+      ctx.fillText("don’t give up", Wv / 2, groundY - 140);
+      ctx.fillStyle = COL.dim; ctx.font = "300 14px system-ui, sans-serif";
+      ctx.fillText("press space or tap to restart", Wv / 2, groundY - 112);
+    }
+    ctx.restore();
+  }
+
+  let last = 0;
+  function frame(now) {
+    const dt = Math.min(0.033, (now - (last || now)) / 1000);
+    last = now;
+    update(dt);
+    draw(now);
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+
+  window.__g = () => ({ state, score, lift, q: +q.toFixed(2), obstacles: obstacles.length, nextX: obstacles.length ? Math.round(obstacles[0].x) : null, speed: Math.round(speed) });
+})();
+</script>
+</body>
+</html>
