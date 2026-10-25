@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="pt-BR">
+<html lang="pt-BR" style="background:#000">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#0c4f75">
+<meta name="theme-color" content="#000000">
 <meta name="color-scheme" content="dark">
 <title>run</title>
 <style>
@@ -14,14 +14,14 @@
     background: #000;
   }
   html, body {
-    margin: 0; height: 100%; background: #000; color: #fff; overflow: hidden;
+    margin: 0; height: 100%; background: #000; color: #777; overflow: hidden;
     touch-action: manipulation; -webkit-user-select: none; user-select: none;
   }
   body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
   canvas { display: block; width: 100%; height: 100%; background: #000; }
 </style>
 </head>
-<body>
+<body style="background:#000">
 <canvas id="c"></canvas>
 <noscript style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center">building portfolio...</noscript>
 <script>
@@ -44,8 +44,7 @@
   resize();
 
   const GRAVITY = 2200, JUMP_V = 820, PX = 70, PW = 44, PH = 32;
-  // Ajustado as cores das linhas e textos secundários para contrastar melhor com o azul do fundo
-  const COL = { player: "#f3f3f3", a: "#6b6b6b", b: "#b5b5b5", line: "#ffffff", dim: "#e0e0e0", faint: "#a0a0a0" };
+  const COL = { player: "#f3f3f3", a: "#6b6b6b", b: "#b5b5b5", line: "#2a2a2a", dim: "#777", faint: "#444" };
 
   let state = "ready";          // ready | running | over
   let speed, dist, score, lift, vy, obstacles, sinceSpawn, gap, overAt = 0, specks = [];
@@ -149,13 +148,12 @@
 
   function draw(now) {
     ctx.setTransform(Math.min(window.devicePixelRatio || 1, 2), 0, 0, Math.min(window.devicePixelRatio || 1, 2), 0, 0);
-    // Aqui mudamos o fundo do canvas para o seu azul personalizado (#0c4f75)
-    ctx.fillStyle = "#0c4f75"; ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = "#000"; ctx.fillRect(0, 0, W, H);
     ctx.save(); ctx.scale(S, S);
 
     // ground
     ctx.fillStyle = COL.line; ctx.fillRect(0, groundY, Wv, 1.5);
-    ctx.fillStyle = "rgba(255, 255, 255, 0.2)";
+    ctx.fillStyle = "#1c1c1c";
     specks.forEach(s => ctx.fillRect(s.x, groundY + s.y, s.w, 1.5));
 
     // obstacles
@@ -200,22 +198,30 @@
     if (hi > 0) { ctx.fillStyle = COL.faint; ctx.fillText("HI " + pad(hi), Wv - 24 - 76, 40); }
 
     ctx.textAlign = "center";
-    ctx.fillStyle = COL.dim; 
-    if (state === "ready") ctx.fillText("press space or tap to run", Wv / 2, Hv * 0.4);
-    if (state === "over") ctx.fillText("game over", Wv / 2, Hv * 0.4);
-
+    ctx.fillStyle = COL.dim; ctx.fillText("building portfolio...", Wv / 2, Hv - 36);
+    if (state === "ready") {
+      ctx.fillStyle = COL.dim; ctx.font = "300 14px system-ui, sans-serif";
+      ctx.fillText("press space or tap to start", Wv / 2, groundY - 130);
+    } else if (state === "over") {
+      ctx.fillStyle = COL.player; ctx.font = "300 28px system-ui, sans-serif";
+      ctx.fillText("don’t give up", Wv / 2, groundY - 140);
+      ctx.fillStyle = COL.dim; ctx.font = "300 14px system-ui, sans-serif";
+      ctx.fillText("press space or tap to restart", Wv / 2, groundY - 112);
+    }
     ctx.restore();
   }
 
   let last = 0;
-  function loop(now) {
-    let dt = (now - last) / 1000; last = now;
-    if (dt > 0.1) dt = 0.1;
+  function frame(now) {
+    const dt = Math.min(0.033, (now - (last || now)) / 1000);
+    last = now;
     update(dt);
     draw(now);
-    requestAnimationFrame(loop);
+    requestAnimationFrame(frame);
   }
-  requestAnimationFrame(now => { last = now; requestAnimationFrame(loop); });
+  requestAnimationFrame(frame);
+
+  window.__g = () => ({ state, score, lift, q: +q.toFixed(2), obstacles: obstacles.length, nextX: obstacles.length ? Math.round(obstacles[0].x) : null, speed: Math.round(speed) });
 })();
 </script>
 </body>
